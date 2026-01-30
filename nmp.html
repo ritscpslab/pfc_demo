@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="utf-8">
+  <title>1次元ボール（入力開始から記録）</title>
+  <style>
+    body {
+      text-align: center;
+      font-family: sans-serif;
+    }
+
+    canvas {
+      border: 1px solid #888;
+      margin-top: 10px;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h2>
+    実験1：非最小位相系の制御<br>
+    赤のボールに青のボールが近づくように追従<br>
+    矢印キー（←/→）を押した瞬間にシミュレーション開始
+  </h2>
+  <h3>赤: 正弦波 ｜ 青: Gd = (-s+1)/(s²+3s+2)</h3>
+
+  <canvas id="simCanvas" width="700" height="430"></canvas>
+
+  <p>← → キーで操作</p>
+
+  <p>
+    <button id="saveBtn" disabled>CSV保存</button>
+    <button id="restartBtn" disabled>再スタート</button>
+  </p>
+
+  <p id="csvCount">CSV保存回数：0 回</p>
+
+  <script>
+    // ===== 基本設定 =====
+    const Ts = 0.01;
+    const simTime = 30;
+
+    // ===== 離散モデル =====
+    const a1 = -1.97024777, a2 = 0.97044481;
+    const b0 = -0.004901236, b1 = 0.000049259, b2 = 0.004950495;
+
+    // ===== 状態 =====
+    let y = [0, 0], u = [0, 0];
+    let input = 0;
+    let t = 0;
+
+    // ===== フラグ =====
+    let recording = false;
+    let simFinished = false;
+    let csvSaveCount = 0;
+
+    // ===== 記録 =====
+    let data = [];
+
+    // ===== 正弦波 =====
+    const freq = 0.5, amp = 150;
+
+    // ===== キー状態 =====
+    let rightPressed = false;
+    let leftPressed = false;
+
+    // ===== キー操作 =====
+    window.addEventListener("keydown", e => {
+      if (e.key === "ArrowRight") rightPressed = true;
+      if (e.key === "ArrowLeft") leftPressed = true;
+
+      // 初回入力で開始
+      if (!recording && !simFinished && (rightPressed || leftPressed)) {
+        recording = true;
+        data = [];
+        t = 0;
+
+        document.getElementById("saveBtn").disabled = true;
+        document.getElementById("restartBtn").disabled = true;
+      }
+    });
+
+    window.addEventListener("keyup", e => {
+      if (e.key === "ArrowRight") rightPressed = false;
+      if (e.key === "ArrowLeft") leftPressed = false;
+    });
+
+    // ===== 差分方程式 =====
+    function step() {
+      const yk =
+        -a1 * y[0] - a2 * y[1]
+        + b0 * input + b1 * u[0] + b2 * u[1];
+
+      y[1] = y[0]; y[0] = yk;
+      u[1] = u[0]; u[0] = input;
+      return yk;
+    }
+
+    // ===== Canvas =====
+    const canvas = document.getElementById("simCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // ===== 描画 =====
+    function draw() {
+
+      // 入力生成
+      if (recording) {
+        if (rightPressed) input += 0.1;
+        if (leftPressed) input -= 0.1;
+        if (!rightPressed && !leftPressed) input *= 0.95;
+      }
+
+      const y_out = step();
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+
+      const redX = cx + amp * Math.sin(2 * Math.PI * freq * t);
+      const blueX = cx + y_out * 2000;
+      const error = redX - blueX;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.beginPath();
+      ctx.arc(redX, cy - 100, 10, 0, Math.PI * 2);
+      ctx.fillStyle = "red"; ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(blueX, cy - 30, 10, 0, Math.PI * 2);
+      ctx.fillStyle = "blue"; ctx.fill();
+
+      ctx.fillStyle = "black";
+      ctx.fillText(
+        `t=${t.toFixed(2)}s | u=${input.toFixed(2)} | e=${error.toFixed(2)}`,
+        10, 20
+      );
+
+      // 記録
+      if (recording) {
+        data.push({
+          u: input.toFixed(4),
+          time: t.toFixed(2),
+          redX: redX.toFixed(3),
+          blueX: blueX.toFixed(3),
+          error: error.toFixed(3)
+        });
+
+        t += Ts;
+
+        // ===== 終了判定 =====
+        if (t >= simTime) {
+          recording = false;
+          simFinished = true;
+
+          document.getElementById("saveBtn").disabled = false;
+          document.getElementById("restartBtn").disabled = false;
+        }
+      }
+
+      requestAnimationFrame(draw);
+    }
+
+    // ===== CSV保存 =====
+    function saveCSV() {
+      let csv = "u,time,redX,blueX,error\n";
+      data.forEach(d => {
+        csv += `${d.u},${d.time},${d.redX},${d.blueX},${d.error}\n`;
+      });
+
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ball_data_${csvSaveCount + 1}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      csvSaveCount++;
+      document.getElementById("csvCount").textContent =
+        `CSV保存回数：${csvSaveCount} 回`;
+    }
+
+    // ===== 再スタート =====
+    function resetSimulation() {
+      y = [0, 0];
+      u = [0, 0];
+      input = 0;
+      t = 0;
+      data = [];
+      recording = false;
+      simFinished = false;
+
+      document.getElementById("saveBtn").disabled = true;
+      document.getElementById("restartBtn").disabled = true;
+    }
+
+    // ===== ボタン =====
+    document.getElementById("saveBtn").addEventListener("click", saveCSV);
+    document.getElementById("restartBtn").addEventListener("click", resetSimulation);
+
+    // ===== 開始 =====
+    draw();
+  </script>
+</body>
+
+</html>
