@@ -3,20 +3,132 @@
 
 <head>
   <meta charset="utf-8">
-  <title>1次元ボール（入力開始から記録）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>仮想システムの制御</title>
   <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     body {
       text-align: center;
       font-family: sans-serif;
+      padding: 10px;
+      overflow-x: hidden;
+      touch-action: manipulation;
+    }
+
+    h2 {
+      font-size: 16px;
+      margin: 10px 0;
+      line-height: 1.4;
+    }
+
+    h3 {
+      font-size: 14px;
+      margin: 5px 0;
+    }
+
+    #canvasContainer {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+      margin: 10px 0;
     }
 
     canvas {
       border: 1px solid #888;
-      margin-top: 10px;
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    #controls {
+      margin: 20px 0;
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+    }
+
+    .control-btn {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      border: 3px solid #333;
+      background: linear-gradient(145deg, #f0f0f0, #cacaca);
+      font-size: 24px;
+      font-weight: bold;
+      cursor: pointer;
+      user-select: none;
+      touch-action: manipulation;
+      box-shadow: 3px 3px 8px rgba(0,0,0,0.2);
+      transition: all 0.1s;
+    }
+
+    .control-btn:active {
+      background: linear-gradient(145deg, #cacaca, #f0f0f0);
+      box-shadow: 1px 1px 4px rgba(0,0,0,0.2);
+      transform: scale(0.95);
+    }
+
+    .button-group {
+      margin: 15px 0;
+    }
+
+    button {
+      padding: 12px 24px;
+      font-size: 16px;
+      margin: 5px;
+      border-radius: 5px;
+      border: 1px solid #333;
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+      touch-action: manipulation;
     }
 
     button:disabled {
       opacity: 0.5;
+      cursor: not-allowed;
+      background-color: #999;
+    }
+
+    button:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
+    #csvCount {
+      margin: 10px 0;
+      font-size: 14px;
+    }
+
+    .instruction {
+      font-size: 14px;
+      margin: 10px 0;
+      color: #666;
+    }
+
+    @media (max-width: 480px) {
+      h2 {
+        font-size: 14px;
+      }
+
+      h3 {
+        font-size: 12px;
+      }
+
+      .control-btn {
+        width: 70px;
+        height: 70px;
+        font-size: 20px;
+      }
+
+      button {
+        padding: 10px 20px;
+        font-size: 14px;
+      }
     }
   </style>
 </head>
@@ -26,17 +138,24 @@
   <h2>
     実験2：仮想システムの制御<br>
     緑のボールとピンクのボールが近づくように矢印キー操作<br>
-    矢印キー（←/→）を押した瞬間にシミュレーション開始
+    ←/→ボタンを押した瞬間にシミュレーション開始
   </h2>
 
-  <canvas id="simCanvas" width="700" height="430"></canvas>
+  <div id="canvasContainer">
+    <canvas id="simCanvas" width="700" height="430"></canvas>
+  </div>
 
-  <p>← → キーで操作</p>
+  <div id="controls">
+    <button class="control-btn" id="leftBtn">←</button>
+    <button class="control-btn" id="rightBtn">→</button>
+  </div>
 
-  <p>
+  <p class="instruction">PC: ← → キー / スマホ: ボタンタップで操作</p>
+
+  <div class="button-group">
     <button id="saveBtn" disabled>CSV保存</button>
     <button id="restartBtn" disabled>再スタート</button>
-  </p>
+  </div>
 
   <p id="csvCount">CSV保存回数：0 回</p>
 
@@ -77,19 +196,35 @@
     let rightPressed = false;
     let leftPressed = false;
 
-    // ===== キー操作 =====
-    window.addEventListener("keydown", e => {
-      if (e.key === "ArrowRight") rightPressed = true;
-      if (e.key === "ArrowLeft") leftPressed = true;
+    // ===== 時間管理 =====
+    let lastUpdateTime = 0;
+    let accumulator = 0;
 
-      // 初回入力で開始
-      if (!recording && !simFinished && (rightPressed || leftPressed)) {
+    // ===== タッチボタン要素 =====
+    const leftBtn = document.getElementById("leftBtn");
+    const rightBtn = document.getElementById("rightBtn");
+
+    // ===== シミュレーション開始関数 =====
+    function startSimulation() {
+      if (!recording && !simFinished) {
         recording = true;
         data = [];
         t = 0;
 
         document.getElementById("saveBtn").disabled = true;
         document.getElementById("restartBtn").disabled = true;
+      }
+    }
+
+    // ===== キーボード操作（PC用） =====
+    window.addEventListener("keydown", e => {
+      if (e.key === "ArrowRight") {
+        rightPressed = true;
+        startSimulation();
+      }
+      if (e.key === "ArrowLeft") {
+        leftPressed = true;
+        startSimulation();
       }
     });
 
@@ -98,14 +233,82 @@
       if (e.key === "ArrowLeft") leftPressed = false;
     });
 
-    // ===== 差分方程式 =====
-    function step(a1, a2, b0, b1, b2, y, u, u_now) {
-      const yk =
-        -a1 * y[0] - a2 * y[1]
-        + b0 * input + b1 * u[0] + b2 * u[1];
+    // ===== タッチ操作（スマホ用） =====
+    // 左ボタン
+    leftBtn.addEventListener("touchstart", e => {
+      e.preventDefault();
+      leftPressed = true;
+      startSimulation();
+    });
 
-      y[1] = y[0]; y[0] = yk;
-      u[1] = u[0]; u[0] = input;
+    leftBtn.addEventListener("touchend", e => {
+      e.preventDefault();
+      leftPressed = false;
+    });
+
+    leftBtn.addEventListener("touchcancel", e => {
+      e.preventDefault();
+      leftPressed = false;
+    });
+
+    // 右ボタン
+    rightBtn.addEventListener("touchstart", e => {
+      e.preventDefault();
+      rightPressed = true;
+      startSimulation();
+    });
+
+    rightBtn.addEventListener("touchend", e => {
+      e.preventDefault();
+      rightPressed = false;
+    });
+
+    rightBtn.addEventListener("touchcancel", e => {
+      e.preventDefault();
+      rightPressed = false;
+    });
+
+    // マウス操作も追加（PC+タッチデバイス両対応）
+    leftBtn.addEventListener("mousedown", e => {
+      e.preventDefault();
+      leftPressed = true;
+      startSimulation();
+    });
+
+    leftBtn.addEventListener("mouseup", e => {
+      e.preventDefault();
+      leftPressed = false;
+    });
+
+    leftBtn.addEventListener("mouseleave", e => {
+      leftPressed = false;
+    });
+
+    rightBtn.addEventListener("mousedown", e => {
+      e.preventDefault();
+      rightPressed = true;
+      startSimulation();
+    });
+
+    rightBtn.addEventListener("mouseup", e => {
+      e.preventDefault();
+      rightPressed = false;
+    });
+
+    rightBtn.addEventListener("mouseleave", e => {
+      rightPressed = false;
+    });
+
+    // ===== 差分方程式 =====
+    function step(a1, a2, b0, b1, b2, y_state, u_state) {
+      const yk =
+        -a1 * y_state[0] - a2 * y_state[1]
+        + b0 * input + b1 * u_state[0] + b2 * u_state[1];
+
+      y_state[1] = y_state[0];
+      y_state[0] = yk;
+      u_state[1] = u_state[0];
+      u_state[0] = input;
       return yk;
     }
 
@@ -113,72 +316,132 @@
     const canvas = document.getElementById("simCanvas");
     const ctx = canvas.getContext("2d");
 
-    // ===== 描画 =====
-    function draw() {
+    // ===== Canvas リサイズ対応 =====
+    function resizeCanvas() {
+      const container = document.getElementById("canvasContainer");
+      const containerWidth = Math.min(700, window.innerWidth - 40);
+      const scale = containerWidth / 700;
+      
+      canvas.style.width = containerWidth + "px";
+      canvas.style.height = (430 * scale) + "px";
+    }
 
-      // 入力生成
-      if (recording) {
-        if (rightPressed) input += 0.1;
-        if (leftPressed) input -= 0.1;
-        if (!rightPressed && !leftPressed) input *= 0.95;
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    // ===== 描画 =====
+    function draw(currentTime) {
+      // 初回呼び出し時
+      if (lastUpdateTime === 0) {
+        lastUpdateTime = currentTime;
       }
 
-      // 応答計算
-      const y_out = step(a1, a2, b0, b1, b2, y, u, input);          // Gd
-      const y_out2 = step(a1_sd, a2_sd, b0_sd, b1_sd, b2_sd, y_sd, u, input);  // Gsd
-      const y_out3 = step(a1_sum, a2_sum, b0_sum, b1_sum, b2_sum, y_sum, u, input); // Gsum
+      // 経過時間を計算（秒単位）
+      const deltaTime = (currentTime - lastUpdateTime) / 1000;
+      lastUpdateTime = currentTime;
 
-      const cx = canvas.width / 2;
-      const cy = canvas.height / 2;
+      // アキュムレータに経過時間を追加
+      if (recording) {
+        accumulator += deltaTime;
 
-      const redX = cx + amp * Math.sin(2 * Math.PI * freq * t);
-      const blueX = cx + y_out * 2000;
-      const orangeX = cx + y_out2 * 2000;
-      const greenX = cx + y_out3 * 2000;
-      const pinkX = orangeX + redX - cx;
-      const error = redX - blueX;
+        // 固定時間ステップ（0.01秒）で物理計算を実行
+        while (accumulator >= Ts) {
+          // 入力生成
+          if (rightPressed) input += 0.1;
+          if (leftPressed) input -= 0.1;
+          if (!rightPressed && !leftPressed) input *= 0.95;
 
+          // 応答計算
+          const y_out = step(a1, a2, b0, b1, b2, y, u);
+          const y_out2 = step(a1_sd, a2_sd, b0_sd, b1_sd, b2_sd, y_sd, u);
+          const y_out3 = step(a1_sum, a2_sum, b0_sum, b1_sum, b2_sum, y_sum, u);
+
+          const cx = canvas.width / 2;
+
+          const redX = cx + amp * Math.sin(2 * Math.PI * freq * t);
+          const blueX = cx + y_out * 2000;
+          const orangeX = cx + y_out2 * 2000;
+          const greenX = cx + y_out3 * 2000;
+          const pinkX = orangeX + redX - cx;
+          const error = redX - blueX;
+
+          // 記録
+          data.push({
+            u: input.toFixed(4),
+            time: t.toFixed(2),
+            redX: redX.toFixed(3),
+            blueX: blueX.toFixed(3),
+            greenX: greenX.toFixed(3),
+            pinkX: pinkX.toFixed(3),
+            error: error.toFixed(3)
+          });
+
+          t += Ts;
+          accumulator -= Ts;
+
+          // ===== 終了判定 =====
+          if (t >= simTime) {
+            recording = false;
+            simFinished = true;
+
+            document.getElementById("saveBtn").disabled = false;
+            document.getElementById("restartBtn").disabled = false;
+            break;
+          }
+        }
+      }
+
+      // 現在の状態で描画（最新のデータポイントを使用）
+      const latestData = data.length > 0 ? data[data.length - 1] : null;
+      
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+      if (latestData) {
+        const greenX = parseFloat(latestData.greenX);
+        const pinkX = parseFloat(latestData.pinkX);
+        const cy = canvas.height / 2;
 
+        // 緑ボール
+        ctx.beginPath();
+        ctx.arc(greenX, cy - 30, 10, 0, Math.PI * 2);
+        ctx.fillStyle = "green";
+        ctx.fill();
 
-      // 緑ボール
-      ctx.beginPath();
-      ctx.arc(greenX, cy - 30, 10, 0, Math.PI * 2);
-      ctx.fillStyle = "green"; ctx.fill();
+        // ピンクボール
+        ctx.beginPath();
+        ctx.arc(pinkX, cy - 100, 10, 0, Math.PI * 2);
+        ctx.fillStyle = "pink";
+        ctx.fill();
 
-      // ピンクボール
-      ctx.beginPath();
-      ctx.arc(pinkX, cy - 100, 10, 0, Math.PI * 2);
-      ctx.fillStyle = "pink"; ctx.fill();
+        ctx.fillStyle = "black";
+        ctx.font = "14px sans-serif";
+        ctx.fillText(
+          `t=${latestData.time}s | u=${latestData.u} | e=${latestData.error}`,
+          10, 20
+        );
+      } else {
+        // 初期状態の描画
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
 
+        // 緑ボール
+        ctx.beginPath();
+        ctx.arc(cx, cy - 30, 10, 0, Math.PI * 2);
+        ctx.fillStyle = "green";
+        ctx.fill();
 
-      ctx.fillStyle = "black";
-      ctx.fillText(
-        `t=${t.toFixed(2)}s | u=${input.toFixed(2)} | e=${error.toFixed(2)}`,
-        10, 20
-      );
+        // ピンクボール
+        ctx.beginPath();
+        ctx.arc(cx, cy - 100, 10, 0, Math.PI * 2);
+        ctx.fillStyle = "pink";
+        ctx.fill();
 
-      // 記録
-      if (recording) {
-        data.push({
-          u: input.toFixed(4),
-          time: t.toFixed(2),
-          redX: redX.toFixed(3),
-          blueX: blueX.toFixed(3),
-          error: error.toFixed(3)
-        });
-
-        t += Ts;
-
-        // ===== 終了判定 =====
-        if (t >= simTime) {
-          recording = false;
-          simFinished = true;
-
-          document.getElementById("saveBtn").disabled = false;
-          document.getElementById("restartBtn").disabled = false;
-        }
+        ctx.fillStyle = "black";
+        ctx.font = "14px sans-serif";
+        ctx.fillText(
+          `t=0.00s | u=0.00 | e=0.00`,
+          10, 20
+        );
       }
 
       requestAnimationFrame(draw);
@@ -186,16 +449,16 @@
 
     // ===== CSV保存 =====
     function saveCSV() {
-      let csv = "u,time,redX,blueX,error\n";
+      let csv = "u,time,redX,blueX,greenX,pinkX,error\n";
       data.forEach(d => {
-        csv += `${d.u},${d.time},${d.redX},${d.blueX},${d.error}\n`;
+        csv += `${d.u},${d.time},${d.redX},${d.blueX},${d.greenX},${d.pinkX},${d.error}\n`;
       });
 
       const blob = new Blob([csv], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `ball_data_${csvSaveCount + 1}.csv`;
+      a.download = `pfc_data_${csvSaveCount + 1}.csv`;
       a.click();
       URL.revokeObjectURL(url);
 
@@ -215,6 +478,8 @@
       data = [];
       recording = false;
       simFinished = false;
+      lastUpdateTime = 0;
+      accumulator = 0;
 
       document.getElementById("saveBtn").disabled = true;
       document.getElementById("restartBtn").disabled = true;

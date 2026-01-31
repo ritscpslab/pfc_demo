@@ -3,20 +3,132 @@
 
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>1次元ボール（入力開始から記録）</title>
   <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     body {
       text-align: center;
       font-family: sans-serif;
+      padding: 10px;
+      overflow-x: hidden;
+      touch-action: manipulation;
+    }
+
+    h2 {
+      font-size: 16px;
+      margin: 10px 0;
+      line-height: 1.4;
+    }
+
+    h3 {
+      font-size: 14px;
+      margin: 5px 0;
+    }
+
+    #canvasContainer {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+      margin: 10px 0;
     }
 
     canvas {
       border: 1px solid #888;
-      margin-top: 10px;
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    #controls {
+      margin: 20px 0;
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+    }
+
+    .control-btn {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      border: 3px solid #333;
+      background: linear-gradient(145deg, #f0f0f0, #cacaca);
+      font-size: 24px;
+      font-weight: bold;
+      cursor: pointer;
+      user-select: none;
+      touch-action: manipulation;
+      box-shadow: 3px 3px 8px rgba(0,0,0,0.2);
+      transition: all 0.1s;
+    }
+
+    .control-btn:active {
+      background: linear-gradient(145deg, #cacaca, #f0f0f0);
+      box-shadow: 1px 1px 4px rgba(0,0,0,0.2);
+      transform: scale(0.95);
+    }
+
+    .button-group {
+      margin: 15px 0;
+    }
+
+    button {
+      padding: 12px 24px;
+      font-size: 16px;
+      margin: 5px;
+      border-radius: 5px;
+      border: 1px solid #333;
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+      touch-action: manipulation;
     }
 
     button:disabled {
       opacity: 0.5;
+      cursor: not-allowed;
+      background-color: #999;
+    }
+
+    button:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
+    #csvCount {
+      margin: 10px 0;
+      font-size: 14px;
+    }
+
+    .instruction {
+      font-size: 14px;
+      margin: 10px 0;
+      color: #666;
+    }
+
+    @media (max-width: 480px) {
+      h2 {
+        font-size: 14px;
+      }
+
+      h3 {
+        font-size: 12px;
+      }
+
+      .control-btn {
+        width: 70px;
+        height: 70px;
+        font-size: 20px;
+      }
+
+      button {
+        padding: 10px 20px;
+        font-size: 14px;
+      }
     }
   </style>
 </head>
@@ -26,18 +138,25 @@
   <h2>
     実験1：非最小位相系の制御<br>
     赤のボールに青のボールが近づくように追従<br>
-    矢印キー（←/→）を押した瞬間にシミュレーション開始
+    ←/→ボタンを押した瞬間にシミュレーション開始
   </h2>
   <h3>赤: 正弦波 ｜ 青: Gd = (-s+1)/(s²+3s+2)</h3>
 
-  <canvas id="simCanvas" width="700" height="430"></canvas>
+  <div id="canvasContainer">
+    <canvas id="simCanvas" width="700" height="430"></canvas>
+  </div>
 
-  <p>← → キーで操作</p>
+  <div id="controls">
+    <button class="control-btn" id="leftBtn">←</button>
+    <button class="control-btn" id="rightBtn">→</button>
+  </div>
 
-  <p>
+  <p class="instruction">PC: ← → キー / スマホ: ボタンタップで操作</p>
+
+  <div class="button-group">
     <button id="saveBtn" disabled>CSV保存</button>
     <button id="restartBtn" disabled>再スタート</button>
-  </p>
+  </div>
 
   <p id="csvCount">CSV保存回数：0 回</p>
 
@@ -70,13 +189,17 @@
     let rightPressed = false;
     let leftPressed = false;
 
-    // ===== キー操作 =====
-    window.addEventListener("keydown", e => {
-      if (e.key === "ArrowRight") rightPressed = true;
-      if (e.key === "ArrowLeft") leftPressed = true;
+    // ===== 時間管理 =====
+    let lastUpdateTime = 0;
+    let accumulator = 0;
 
-      // 初回入力で開始
-      if (!recording && !simFinished && (rightPressed || leftPressed)) {
+    // ===== タッチボタン要素 =====
+    const leftBtn = document.getElementById("leftBtn");
+    const rightBtn = document.getElementById("rightBtn");
+
+    // ===== シミュレーション開始関数 =====
+    function startSimulation() {
+      if (!recording && !simFinished) {
         recording = true;
         data = [];
         t = 0;
@@ -84,11 +207,89 @@
         document.getElementById("saveBtn").disabled = true;
         document.getElementById("restartBtn").disabled = true;
       }
+    }
+
+    // ===== キーボード操作（PC用） =====
+    window.addEventListener("keydown", e => {
+      if (e.key === "ArrowRight") {
+        rightPressed = true;
+        startSimulation();
+      }
+      if (e.key === "ArrowLeft") {
+        leftPressed = true;
+        startSimulation();
+      }
     });
 
     window.addEventListener("keyup", e => {
       if (e.key === "ArrowRight") rightPressed = false;
       if (e.key === "ArrowLeft") leftPressed = false;
+    });
+
+    // ===== タッチ操作（スマホ用） =====
+    // 左ボタン
+    leftBtn.addEventListener("touchstart", e => {
+      e.preventDefault();
+      leftPressed = true;
+      startSimulation();
+    });
+
+    leftBtn.addEventListener("touchend", e => {
+      e.preventDefault();
+      leftPressed = false;
+    });
+
+    leftBtn.addEventListener("touchcancel", e => {
+      e.preventDefault();
+      leftPressed = false;
+    });
+
+    // 右ボタン
+    rightBtn.addEventListener("touchstart", e => {
+      e.preventDefault();
+      rightPressed = true;
+      startSimulation();
+    });
+
+    rightBtn.addEventListener("touchend", e => {
+      e.preventDefault();
+      rightPressed = false;
+    });
+
+    rightBtn.addEventListener("touchcancel", e => {
+      e.preventDefault();
+      rightPressed = false;
+    });
+
+    // マウス操作も追加（PC+タッチデバイス両対応）
+    leftBtn.addEventListener("mousedown", e => {
+      e.preventDefault();
+      leftPressed = true;
+      startSimulation();
+    });
+
+    leftBtn.addEventListener("mouseup", e => {
+      e.preventDefault();
+      leftPressed = false;
+    });
+
+    leftBtn.addEventListener("mouseleave", e => {
+      leftPressed = false;
+    });
+
+    rightBtn.addEventListener("mousedown", e => {
+      e.preventDefault();
+      rightPressed = true;
+      startSimulation();
+    });
+
+    rightBtn.addEventListener("mouseup", e => {
+      e.preventDefault();
+      rightPressed = false;
+    });
+
+    rightBtn.addEventListener("mouseleave", e => {
+      rightPressed = false;
     });
 
     // ===== 差分方程式 =====
@@ -106,60 +307,115 @@
     const canvas = document.getElementById("simCanvas");
     const ctx = canvas.getContext("2d");
 
-    // ===== 描画 =====
-    function draw() {
+    // ===== Canvas リサイズ対応 =====
+    function resizeCanvas() {
+      const container = document.getElementById("canvasContainer");
+      const containerWidth = Math.min(700, window.innerWidth - 40);
+      const scale = containerWidth / 700;
+      
+      canvas.style.width = containerWidth + "px";
+      canvas.style.height = (430 * scale) + "px";
+    }
 
-      // 入力生成
-      if (recording) {
-        if (rightPressed) input += 0.1;
-        if (leftPressed) input -= 0.1;
-        if (!rightPressed && !leftPressed) input *= 0.95;
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    // ===== 描画 =====
+    function draw(currentTime) {
+      // 初回呼び出し時
+      if (lastUpdateTime === 0) {
+        lastUpdateTime = currentTime;
       }
 
-      const y_out = step();
-      const cx = canvas.width / 2;
-      const cy = canvas.height / 2;
+      // 経過時間を計算（秒単位）
+      const deltaTime = (currentTime - lastUpdateTime) / 1000;
+      lastUpdateTime = currentTime;
 
-      const redX = cx + amp * Math.sin(2 * Math.PI * freq * t);
-      const blueX = cx + y_out * 2000;
-      const error = redX - blueX;
+      // アキュムレータに経過時間を追加
+      if (recording) {
+        accumulator += deltaTime;
 
+        // 固定時間ステップ（0.01秒）で物理計算を実行
+        while (accumulator >= Ts) {
+          // 入力生成
+          if (rightPressed) input += 0.1;
+          if (leftPressed) input -= 0.1;
+          if (!rightPressed && !leftPressed) input *= 0.95;
+
+          const y_out = step();
+          const cx = canvas.width / 2;
+
+          const redX = cx + amp * Math.sin(2 * Math.PI * freq * t);
+          const blueX = cx + y_out * 2000;
+          const error = redX - blueX;
+
+          // 記録
+          data.push({
+            u: input.toFixed(4),
+            time: t.toFixed(2),
+            redX: redX.toFixed(3),
+            blueX: blueX.toFixed(3),
+            error: error.toFixed(3)
+          });
+
+          t += Ts;
+          accumulator -= Ts;
+
+          // ===== 終了判定 =====
+          if (t >= simTime) {
+            recording = false;
+            simFinished = true;
+
+            document.getElementById("saveBtn").disabled = false;
+            document.getElementById("restartBtn").disabled = false;
+            break;
+          }
+        }
+      }
+
+      // 現在の状態で描画（最新のデータポイントを使用）
+      const latestData = data.length > 0 ? data[data.length - 1] : null;
+      
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      ctx.beginPath();
-      ctx.arc(redX, cy - 100, 10, 0, Math.PI * 2);
-      ctx.fillStyle = "red"; ctx.fill();
+      if (latestData) {
+        const redX = parseFloat(latestData.redX);
+        const blueX = parseFloat(latestData.blueX);
+        const cy = canvas.height / 2;
 
-      ctx.beginPath();
-      ctx.arc(blueX, cy - 30, 10, 0, Math.PI * 2);
-      ctx.fillStyle = "blue"; ctx.fill();
+        ctx.beginPath();
+        ctx.arc(redX, cy - 100, 10, 0, Math.PI * 2);
+        ctx.fillStyle = "red"; ctx.fill();
 
-      ctx.fillStyle = "black";
-      ctx.fillText(
-        `t=${t.toFixed(2)}s | u=${input.toFixed(2)} | e=${error.toFixed(2)}`,
-        10, 20
-      );
+        ctx.beginPath();
+        ctx.arc(blueX, cy - 30, 10, 0, Math.PI * 2);
+        ctx.fillStyle = "blue"; ctx.fill();
 
-      // 記録
-      if (recording) {
-        data.push({
-          u: input.toFixed(4),
-          time: t.toFixed(2),
-          redX: redX.toFixed(3),
-          blueX: blueX.toFixed(3),
-          error: error.toFixed(3)
-        });
+        ctx.fillStyle = "black";
+        ctx.font = "14px sans-serif";
+        ctx.fillText(
+          `t=${latestData.time}s | u=${latestData.u} | e=${latestData.error}`,
+          10, 20
+        );
+      } else {
+        // 初期状態の描画
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
 
-        t += Ts;
+        ctx.beginPath();
+        ctx.arc(cx, cy - 100, 10, 0, Math.PI * 2);
+        ctx.fillStyle = "red"; ctx.fill();
 
-        // ===== 終了判定 =====
-        if (t >= simTime) {
-          recording = false;
-          simFinished = true;
+        ctx.beginPath();
+        ctx.arc(cx, cy - 30, 10, 0, Math.PI * 2);
+        ctx.fillStyle = "blue"; ctx.fill();
 
-          document.getElementById("saveBtn").disabled = false;
-          document.getElementById("restartBtn").disabled = false;
-        }
+        ctx.fillStyle = "black";
+        ctx.font = "14px sans-serif";
+        ctx.fillText(
+          `t=0.00s | u=0.00 | e=0.00`,
+          10, 20
+        );
       }
 
       requestAnimationFrame(draw);
@@ -194,6 +450,8 @@
       data = [];
       recording = false;
       simFinished = false;
+      lastUpdateTime = 0;
+      accumulator = 0;
 
       document.getElementById("saveBtn").disabled = true;
       document.getElementById("restartBtn").disabled = true;
